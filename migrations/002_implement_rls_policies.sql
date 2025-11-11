@@ -1,14 +1,14 @@
--- Phase 1: Row-Level Security (RLS) Policies
--- Purpose: Implement comprehensive RLS policies for multi-tenant data isolation
--- Created: November 7, 2025
--- Author: Manus AI
+-- Sprint 1: Row-Level Security (RLS) Policies
+-- Created: November 10, 2025
+-- Purpose: Implement multi-tenant data isolation using RLS
+-- Security Level: Production-grade
 
-BEGIN;
+-- ============================================
+-- STEP 1: Enable RLS on all tables
+-- ============================================
 
--- Enable RLS on all tables
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
-ALTER TABLE team_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
@@ -16,271 +16,304 @@ ALTER TABLE time_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE task_dependencies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_suggestions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE team_members ENABLE ROW LEVEL SECURITY;
 
--- ============================================================
--- USERS TABLE POLICIES
--- ============================================================
+-- ============================================
+-- STEP 2: Create helper functions
+-- ============================================
 
--- Users can view their own profile
-CREATE POLICY "users_select_own" ON users
-  FOR SELECT
-  USING (id = auth.uid());
+-- Get current user ID from JWT
+CREATE OR REPLACE FUNCTION current_user_id() RETURNS TEXT AS $$
+  SELECT (current_setting('request.jwt.claims', true)::jsonb->>'sub')::TEXT;
+$$ LANGUAGE SQL STABLE;
 
--- Users can update their own profile
-CREATE POLICY "users_update_own" ON users
-  FOR UPDATE
-  USING (id = auth.uid())
-  WITH CHECK (id = auth.uid());
+-- Get user role
+CREATE OR REPLACE FUNCTION current_user_role() RETURNS TEXT AS $$
+  SELECT (current_setting('request.jwt.claims', true)::jsonb->>'role')::TEXT;
+$$ LANGUAGE SQL STABLE;
 
--- Admins can view all users
-CREATE POLICY "users_select_admin" ON users
-  FOR SELECT
+-- Check if user is admin
+CREATE OR REPLACE FUNCTION is_admin() RETURNS BOOLEAN AS $$
+  SELECT current_user_role() = 'admin';
+$$ LANGUAGE SQL STABLE;
+
+-- Get user's team IDs
+CREATE OR REPLACE FUNCTION user_team_ids() RETURNS SETOF INT AS $$
+  SELECT team_id FROM team_members WHERE user_id = current_user_id();
+$$ LANGUAGE SQL STABLE;
+
+-- ============================================
+-- STEP 3: Users table policies
+-- ============================================
+
+-- Users can view their own record
+CREATE POLICY "Users can view own record"
+  ON users FOR SELECT
+  USING (openId = current_user_id() OR is_admin());
+
+-- Users can update their own record
+CREATE POLICY "Users can update own record"
+  ON users FOR UPDATE
+  USING (openId = current_user_id())
+  WITH CHECK (openId = current_user_id());
+
+-- ============================================
+-- STEP 4: Teams table policies
+-- ============================================
+
+-- Users can view teams they belong to
+CREATE POLICY "Users can view their teams"
+  ON teams FOR SELECT
   USING (
-    EXISTS (
-      SELECT 1 FROM users WHERE id = auth.uid() AND role = 'admin'
-    )
+    id IN (SELECT team_id FROM team_members WHERE user_id = current_user_id())
+    OR owner_id = current_user_id()
+    OR is_admin()
   );
 
--- ============================================================
--- TEAMS TABLE POLICIES
--- ============================================================
+-- Team owners can update their teams
+CREATE POLICY "Team owners can update teams"
+  ON teams FOR UPDATE
+  USING (owner_id = current_user_id() OR is_admin())
+  WITH CHECK (owner_id = current_user_id() OR is_admin());
 
--- Users can view teams they are members of
-CREATE POLICY "teams_select_member" ON teams
-  FOR SELECT
+-- ============================================
+-- STEP 5: Team members table policies
+-- ============================================
+
+-- Users can view team members in their teams
+CREATE POLICY "Users can view team members"
+  ON team_members FOR SELECT
   USING (
-    id IN (
-      SELECT team_id FROM team_members WHERE user_id = auth.uid()
-    )
+    team_id IN (SELECT team_id FROM team_members WHERE user_id = current_user_id())
+    OR is_admin()
   );
 
--- Team leads can update their teams
-CREATE POLICY "teams_update_lead" ON teams
-  FOR UPDATE
-  USING (
-    id IN (
-      SELECT team_id FROM team_members 
-      WHERE user_id = auth.uid() AND role = 'lead'
-    )
-  )
+-- Team owners can manage team members
+CREATE POLICY "Team owners can manage members"
+  ON team_members FOR INSERT
   WITH CHECK (
-    id IN (
-      SELECT team_id FROM team_members 
-      WHERE user_id = auth.uid() AND role = 'lead'
-    )
+    team_id IN (SELECT id FROM teams WHERE owner_id = current_user_id())
+    OR is_admin()
   );
 
--- ============================================================
--- TEAM MEMBERS TABLE POLICIES
--- ============================================================
-
--- Users can view team members of their teams
-CREATE POLICY "team_members_select" ON team_members
-  FOR SELECT
-  USING (
-    team_id IN (
-      SELECT team_id FROM team_members WHERE user_id = auth.uid()
-    )
-  );
-
--- Team leads can manage team members
-CREATE POLICY "team_members_insert" ON team_members
-  FOR INSERT
-  WITH CHECK (
-    team_id IN (
-      SELECT team_id FROM team_members 
-      WHERE user_id = auth.uid() AND role = 'lead'
-    )
-  );
-
-CREATE POLICY "team_members_update" ON team_members
-  FOR UPDATE
-  USING (
-    team_id IN (
-      SELECT team_id FROM team_members 
-      WHERE user_id = auth.uid() AND role = 'lead'
-    )
-  )
-  WITH CHECK (
-    team_id IN (
-      SELECT team_id FROM team_members 
-      WHERE user_id = auth.uid() AND role = 'lead'
-    )
-  );
-
--- ============================================================
--- PROJECTS TABLE POLICIES
--- ============================================================
+-- ============================================
+-- STEP 6: Projects table policies
+-- ============================================
 
 -- Users can view projects in their teams
-CREATE POLICY "projects_select" ON projects
-  FOR SELECT
+CREATE POLICY "Users can view team projects"
+  ON projects FOR SELECT
   USING (
-    team_id IN (
-      SELECT team_id FROM team_members WHERE user_id = auth.uid()
-    )
+    team_id IN (SELECT team_id FROM team_members WHERE user_id = current_user_id())
+    OR is_admin()
   );
 
 -- Users can create projects in their teams
-CREATE POLICY "projects_insert" ON projects
-  FOR INSERT
+CREATE POLICY "Users can create team projects"
+  ON projects FOR INSERT
   WITH CHECK (
-    team_id IN (
-      SELECT team_id FROM team_members WHERE user_id = auth.uid()
-    )
+    team_id IN (SELECT team_id FROM team_members WHERE user_id = current_user_id())
+    OR is_admin()
   );
 
 -- Users can update projects in their teams
-CREATE POLICY "projects_update" ON projects
-  FOR UPDATE
+CREATE POLICY "Users can update team projects"
+  ON projects FOR UPDATE
   USING (
-    team_id IN (
-      SELECT team_id FROM team_members WHERE user_id = auth.uid()
-    )
-  )
-  WITH CHECK (
-    team_id IN (
-      SELECT team_id FROM team_members WHERE user_id = auth.uid()
-    )
+    team_id IN (SELECT team_id FROM team_members WHERE user_id = current_user_id())
+    OR is_admin()
   );
 
--- ============================================================
--- TASKS TABLE POLICIES
--- ============================================================
+-- ============================================
+-- STEP 7: Tasks table policies
+-- ============================================
 
--- Users can view tasks in their teams
-CREATE POLICY "tasks_select" ON tasks
-  FOR SELECT
+-- Users can view tasks in their projects
+CREATE POLICY "Users can view team tasks"
+  ON tasks FOR SELECT
   USING (
-    team_id IN (
-      SELECT team_id FROM team_members WHERE user_id = auth.uid()
+    project_id IN (
+      SELECT id FROM projects 
+      WHERE team_id IN (SELECT team_id FROM team_members WHERE user_id = current_user_id())
     )
+    OR is_admin()
   );
 
--- Users can create tasks in their teams
-CREATE POLICY "tasks_insert" ON tasks
-  FOR INSERT
+-- Users can create tasks in their projects
+CREATE POLICY "Users can create team tasks"
+  ON tasks FOR INSERT
   WITH CHECK (
-    team_id IN (
-      SELECT team_id FROM team_members WHERE user_id = auth.uid()
+    project_id IN (
+      SELECT id FROM projects 
+      WHERE team_id IN (SELECT team_id FROM team_members WHERE user_id = current_user_id())
     )
+    OR is_admin()
   );
 
--- Users can update tasks in their teams
-CREATE POLICY "tasks_update" ON tasks
-  FOR UPDATE
+-- Users can update tasks in their projects
+CREATE POLICY "Users can update team tasks"
+  ON tasks FOR UPDATE
   USING (
-    team_id IN (
-      SELECT team_id FROM team_members WHERE user_id = auth.uid()
+    project_id IN (
+      SELECT id FROM projects 
+      WHERE team_id IN (SELECT team_id FROM team_members WHERE user_id = current_user_id())
     )
-  )
-  WITH CHECK (
-    team_id IN (
-      SELECT team_id FROM team_members WHERE user_id = auth.uid()
-    )
+    OR is_admin()
   );
 
--- ============================================================
--- COMMENTS TABLE POLICIES
--- ============================================================
+-- ============================================
+-- STEP 8: Comments table policies
+-- ============================================
 
--- Users can view comments on tasks in their teams
-CREATE POLICY "comments_select" ON comments
-  FOR SELECT
+-- Users can view comments on tasks in their projects
+CREATE POLICY "Users can view task comments"
+  ON comments FOR SELECT
   USING (
     task_id IN (
-      SELECT id FROM tasks WHERE team_id IN (
-        SELECT team_id FROM team_members WHERE user_id = auth.uid()
+      SELECT id FROM tasks 
+      WHERE project_id IN (
+        SELECT id FROM projects 
+        WHERE team_id IN (SELECT team_id FROM team_members WHERE user_id = current_user_id())
       )
     )
+    OR is_admin()
   );
 
--- Users can create comments on tasks in their teams
-CREATE POLICY "comments_insert" ON comments
-  FOR INSERT
+-- Users can create comments on tasks in their projects
+CREATE POLICY "Users can create task comments"
+  ON comments FOR INSERT
   WITH CHECK (
     task_id IN (
-      SELECT id FROM tasks WHERE team_id IN (
-        SELECT team_id FROM team_members WHERE user_id = auth.uid()
+      SELECT id FROM tasks 
+      WHERE project_id IN (
+        SELECT id FROM projects 
+        WHERE team_id IN (SELECT team_id FROM team_members WHERE user_id = current_user_id())
       )
     )
+    OR is_admin()
   );
 
 -- Users can update their own comments
-CREATE POLICY "comments_update" ON comments
-  FOR UPDATE
-  USING (user_id = auth.uid())
-  WITH CHECK (user_id = auth.uid());
+CREATE POLICY "Users can update own comments"
+  ON comments FOR UPDATE
+  USING (user_id = current_user_id() OR is_admin())
+  WITH CHECK (user_id = current_user_id() OR is_admin());
 
--- ============================================================
--- TIME LOGS TABLE POLICIES
--- ============================================================
+-- ============================================
+-- STEP 9: Time logs table policies
+-- ============================================
 
--- Users can view time logs for tasks in their teams
-CREATE POLICY "time_logs_select" ON time_logs
-  FOR SELECT
+-- Users can view time logs for tasks in their projects
+CREATE POLICY "Users can view task time logs"
+  ON time_logs FOR SELECT
   USING (
     task_id IN (
-      SELECT id FROM tasks WHERE team_id IN (
-        SELECT team_id FROM team_members WHERE user_id = auth.uid()
+      SELECT id FROM tasks 
+      WHERE project_id IN (
+        SELECT id FROM projects 
+        WHERE team_id IN (SELECT team_id FROM team_members WHERE user_id = current_user_id())
       )
     )
+    OR user_id = current_user_id()
+    OR is_admin()
   );
 
--- Users can create time logs for tasks in their teams
-CREATE POLICY "time_logs_insert" ON time_logs
-  FOR INSERT
+-- Users can create time logs for their tasks
+CREATE POLICY "Users can create time logs"
+  ON time_logs FOR INSERT
   WITH CHECK (
-    task_id IN (
-      SELECT id FROM tasks WHERE team_id IN (
-        SELECT team_id FROM team_members WHERE user_id = auth.uid()
+    user_id = current_user_id()
+    AND task_id IN (
+      SELECT id FROM tasks 
+      WHERE project_id IN (
+        SELECT id FROM projects 
+        WHERE team_id IN (SELECT team_id FROM team_members WHERE user_id = current_user_id())
       )
     )
   );
 
--- ============================================================
--- NOTIFICATIONS TABLE POLICIES
--- ============================================================
+-- ============================================
+-- STEP 10: Notifications table policies
+-- ============================================
 
--- Users can view their own notifications
-CREATE POLICY "notifications_select" ON notifications
-  FOR SELECT
-  USING (user_id = auth.uid());
+-- Users can only view their own notifications
+CREATE POLICY "Users can view own notifications"
+  ON notifications FOR SELECT
+  USING (user_id = current_user_id() OR is_admin());
 
 -- Users can update their own notifications
-CREATE POLICY "notifications_update" ON notifications
-  FOR UPDATE
-  USING (user_id = auth.uid())
-  WITH CHECK (user_id = auth.uid());
+CREATE POLICY "Users can update own notifications"
+  ON notifications FOR UPDATE
+  USING (user_id = current_user_id())
+  WITH CHECK (user_id = current_user_id());
 
--- ============================================================
--- TASK DEPENDENCIES TABLE POLICIES
--- ============================================================
+-- ============================================
+-- STEP 11: Task dependencies table policies
+-- ============================================
 
--- Users can view task dependencies for tasks in their teams
-CREATE POLICY "task_dependencies_select" ON task_dependencies
-  FOR SELECT
-  USING (
-    blocker_task_id IN (
-      SELECT id FROM tasks WHERE team_id IN (
-        SELECT team_id FROM team_members WHERE user_id = auth.uid()
-      )
-    )
-  );
-
--- ============================================================
--- AI SUGGESTIONS TABLE POLICIES
--- ============================================================
-
--- Users can view AI suggestions for tasks in their teams
-CREATE POLICY "ai_suggestions_select" ON ai_suggestions
-  FOR SELECT
+-- Users can view dependencies for tasks in their projects
+CREATE POLICY "Users can view task dependencies"
+  ON task_dependencies FOR SELECT
   USING (
     task_id IN (
-      SELECT id FROM tasks WHERE team_id IN (
-        SELECT team_id FROM team_members WHERE user_id = auth.uid()
+      SELECT id FROM tasks 
+      WHERE project_id IN (
+        SELECT id FROM projects 
+        WHERE team_id IN (SELECT team_id FROM team_members WHERE user_id = current_user_id())
       )
     )
+    OR is_admin()
   );
 
-COMMIT;
+-- ============================================
+-- STEP 12: AI suggestions table policies
+-- ============================================
+
+-- Users can view suggestions for their tasks
+CREATE POLICY "Users can view task suggestions"
+  ON ai_suggestions FOR SELECT
+  USING (
+    task_id IN (
+      SELECT id FROM tasks 
+      WHERE project_id IN (
+        SELECT id FROM projects 
+        WHERE team_id IN (SELECT team_id FROM team_members WHERE user_id = current_user_id())
+      )
+    )
+    OR user_id = current_user_id()
+    OR is_admin()
+  );
+
+-- ============================================
+-- STEP 13: Grant permissions to service role
+-- ============================================
+
+-- Service role (backend) can bypass RLS
+ALTER TABLE users FORCE ROW LEVEL SECURITY;
+ALTER TABLE teams FORCE ROW LEVEL SECURITY;
+ALTER TABLE projects FORCE ROW LEVEL SECURITY;
+ALTER TABLE tasks FORCE ROW LEVEL SECURITY;
+ALTER TABLE comments FORCE ROW LEVEL SECURITY;
+ALTER TABLE time_logs FORCE ROW LEVEL SECURITY;
+ALTER TABLE notifications FORCE ROW LEVEL SECURITY;
+ALTER TABLE task_dependencies FORCE ROW LEVEL SECURITY;
+ALTER TABLE ai_suggestions FORCE ROW LEVEL SECURITY;
+ALTER TABLE team_members FORCE ROW LEVEL SECURITY;
+
+-- Grant permissions to authenticated users
+GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO authenticated;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+
+-- Grant permissions to service role (backend)
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO service_role;
+
+-- ============================================
+-- STEP 14: Verification queries
+-- ============================================
+
+-- Verify RLS is enabled
+SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname = 'public' AND rowsecurity = true;
+
+-- Verify policies are created
+SELECT tablename, policyname FROM pg_policies WHERE schemaname = 'public' ORDER BY tablename;

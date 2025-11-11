@@ -1,66 +1,75 @@
--- Phase 1: Database Optimization - Performance Indexes
--- Purpose: Add indexes for frequently queried columns to improve query performance
--- Created: November 7, 2025
--- Author: Manus AI
-
-BEGIN;
+-- Sprint 1: Performance Optimization Indexes
+-- Created: November 10, 2025
+-- Purpose: Add comprehensive indexes for query performance optimization
+-- Target: 50%+ query performance improvement
 
 -- Users table indexes
-CREATE INDEX IF NOT EXISTS idx_users_open_id ON users(openId);
+CREATE INDEX IF NOT EXISTS idx_users_openid ON users(openId);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(createdAt DESC);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(createdAt);
 
 -- Teams table indexes
-CREATE INDEX IF NOT EXISTS idx_teams_created_at ON teams(createdAt DESC);
-
--- Team members indexes
-CREATE INDEX IF NOT EXISTS idx_team_members_user_id ON team_members(userId);
-CREATE INDEX IF NOT EXISTS idx_team_members_team_id ON team_members(teamId);
-CREATE INDEX IF NOT EXISTS idx_team_members_unique ON team_members(teamId, userId);
+CREATE INDEX IF NOT EXISTS idx_teams_owner_id ON teams(owner_id);
+CREATE INDEX IF NOT EXISTS idx_teams_created_at ON teams(created_at);
 
 -- Projects table indexes
-CREATE INDEX IF NOT EXISTS idx_projects_team_id ON projects(teamId);
-CREATE INDEX IF NOT EXISTS idx_projects_created_at ON projects(createdAt DESC);
+CREATE INDEX IF NOT EXISTS idx_projects_team_id ON projects(team_id);
+CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
+CREATE INDEX IF NOT EXISTS idx_projects_created_at ON projects(created_at);
+CREATE INDEX IF NOT EXISTS idx_projects_team_status ON projects(team_id, status);
 
 -- Tasks table indexes (most critical)
-CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(userId);
-CREATE INDEX IF NOT EXISTS idx_tasks_team_id ON tasks(teamId);
-CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(projectId);
+CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_assignee_id ON tasks(assignee_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_priority ON tasks(priority);
-CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(createdAt DESC);
-CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(dueDate);
-
--- Composite indexes for common queries
-CREATE INDEX IF NOT EXISTS idx_tasks_team_status ON tasks(teamId, status);
-CREATE INDEX IF NOT EXISTS idx_tasks_user_status ON tasks(userId, status);
-CREATE INDEX IF NOT EXISTS idx_tasks_project_status ON tasks(projectId, status);
+CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date);
+CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_team_status ON tasks(team_id, status);
+CREATE INDEX IF NOT EXISTS idx_tasks_user_status ON tasks(assignee_id, status);
+CREATE INDEX IF NOT EXISTS idx_tasks_project_status ON tasks(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_tasks_team_created ON tasks(team_id, created_at);
 
 -- Comments table indexes
-CREATE INDEX IF NOT EXISTS idx_comments_task_id ON comments(taskId);
-CREATE INDEX IF NOT EXISTS idx_comments_user_id ON comments(userId);
-CREATE INDEX IF NOT EXISTS idx_comments_created_at ON comments(createdAt DESC);
+CREATE INDEX IF NOT EXISTS idx_comments_task_id ON comments(task_id);
+CREATE INDEX IF NOT EXISTS idx_comments_user_id ON comments(user_id);
+CREATE INDEX IF NOT EXISTS idx_comments_created_at ON comments(created_at);
+CREATE INDEX IF NOT EXISTS idx_comments_user_created ON comments(user_id, created_at);
 
 -- Time logs table indexes
-CREATE INDEX IF NOT EXISTS idx_time_logs_task_id ON time_logs(taskId);
-CREATE INDEX IF NOT EXISTS idx_time_logs_user_id ON time_logs(userId);
-CREATE INDEX IF NOT EXISTS idx_time_logs_date ON time_logs(logDate);
+CREATE INDEX IF NOT EXISTS idx_time_logs_task_id ON time_logs(task_id);
+CREATE INDEX IF NOT EXISTS idx_time_logs_user_id ON time_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_time_logs_date ON time_logs(date);
+CREATE INDEX IF NOT EXISTS idx_time_logs_user_date ON time_logs(user_id, date);
 
 -- Notifications table indexes
-CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(userId);
-CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(isRead);
-CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(createdAt DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read);
+CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, read);
 
--- Task dependencies indexes
-CREATE INDEX IF NOT EXISTS idx_task_dependencies_blocker ON task_dependencies(blockerTaskId);
-CREATE INDEX IF NOT EXISTS idx_task_dependencies_blocked ON task_dependencies(blockedTaskId);
+-- Task dependencies table indexes
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_task_id ON task_dependencies(task_id);
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_depends_on_id ON task_dependencies(depends_on_id);
 
--- AI suggestions indexes
-CREATE INDEX IF NOT EXISTS idx_ai_suggestions_task_id ON ai_suggestions(taskId);
-CREATE INDEX IF NOT EXISTS idx_ai_suggestions_created_at ON ai_suggestions(createdAt DESC);
+-- AI suggestions table indexes
+CREATE INDEX IF NOT EXISTS idx_ai_suggestions_task_id ON ai_suggestions(task_id);
+CREATE INDEX IF NOT EXISTS idx_ai_suggestions_user_id ON ai_suggestions(user_id);
+CREATE INDEX IF NOT EXISTS idx_ai_suggestions_created_at ON ai_suggestions(created_at);
 
--- Full-text search indexes
-CREATE INDEX IF NOT EXISTS idx_tasks_search ON tasks USING gin(to_tsvector('english', title || ' ' || COALESCE(description, '')));
-CREATE INDEX IF NOT EXISTS idx_comments_search ON comments USING gin(to_tsvector('english', content));
+-- Full-text search indexes (if using PostgreSQL)
+-- CREATE INDEX IF NOT EXISTS idx_tasks_title_search ON tasks USING GIN (to_tsvector('english', title));
+-- CREATE INDEX IF NOT EXISTS idx_tasks_description_search ON tasks USING GIN (to_tsvector('english', description));
+-- CREATE INDEX IF NOT EXISTS idx_comments_content_search ON comments USING GIN (to_tsvector('english', content));
 
-COMMIT;
+-- Analyze tables to update statistics
+ANALYZE users;
+ANALYZE teams;
+ANALYZE projects;
+ANALYZE tasks;
+ANALYZE comments;
+ANALYZE time_logs;
+ANALYZE notifications;
+ANALYZE task_dependencies;
+ANALYZE ai_suggestions;
