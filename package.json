@@ -1,0 +1,33 @@
+{
+  "name": "taskflow-new-generation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TaskFlow is a modern, enterprise-grade AI-powered task management platform designed for distributed teams.",
+  "author": "TaskFlow Team",
+  "license": "MIT",
+  "scripts": {
+    "dev": "pnpm --parallel --stream dev",
+    "build": "pnpm --parallel build",
+    "start": "pnpm --filter backend start",
+    "lint": "pnpm --parallel lint",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm --parallel test",
+    "test:unit": "pnpm --parallel test:unit",
+    "test:integration": "pnpm --filter backend test:integration",
+    "test:e2e": "pnpm --filter frontend test:e2e",
+    "test:coverage": "pnpm --parallel test:coverage",
+    "test:watch": "pnpm --parallel test:watch",
+    "db:migrate": "pnpm --filter backend db:migrate",
+    "db:seed": "pnpm --filter backend db:seed",
+    "type-check": "pnpm --parallel type-check",
+    "prepare": "husky install"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.24",
+    "husky": "^9.0.11",
+    "prettier": "^3.2.5",
+    "typescript": "^5.3.3"
+  },
+  "packageManager": "pnpm@8.15.5"
+}

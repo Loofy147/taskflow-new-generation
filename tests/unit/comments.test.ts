@@ -1,9 +1,13 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { createComment, getComments, updateComment, deleteComment } from '@/features/comments';
+const {
+  createComment,
+  getComments,
+  updateComment,
+  deleteComment,
+  addReaction,
+} = require('../../src/backend/features/comments');
 
 describe('Comments System', () => {
-  let taskId: bigint;
-  let userId: bigint;
+  let taskId, userId;
 
   beforeEach(() => {
     taskId = BigInt(1);
@@ -79,6 +83,6 @@ describe('Comments System', () => {
 
     await deleteComment(comment.id, userId);
     const deleted = await getComments(taskId);
-    expect(deleted.find(c => c.id === comment.id)).toBeUndefined();
+    expect(deleted.find((c) => c.id === comment.id)).toBeUndefined();
   });
 });
