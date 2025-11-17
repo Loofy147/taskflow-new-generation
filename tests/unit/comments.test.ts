@@ -85,4 +85,16 @@ describe('Comments System', () => {
     const deleted = await getComments(taskId);
     expect(deleted.find((c) => c.id === comment.id)).toBeUndefined();
   });
+
+  it('should retrieve a created comment', async () => {
+    const newComment = await createComment({
+      taskId,
+      userId,
+      content: 'This should be retrievable',
+    });
+    const allComments = await getComments(taskId);
+    const retrievedComment = allComments.find((c) => c.id === newComment.id);
+    expect(retrievedComment).toBeDefined();
+    expect(retrievedComment.content).toBe('This should be retrievable');
+  });
 });
